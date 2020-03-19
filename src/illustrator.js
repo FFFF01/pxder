@@ -1,10 +1,3 @@
-/*
- * @Author: Jindai Kirin 
- * @Date: 2018-08-13 15:38:50 
- * @Last Modified by: Jindai Kirin
- * @Last Modified time: 2019-03-18 15:37:47
- */
-
 const Illust = require('./illust');
 
 let pixiv;
@@ -26,7 +19,7 @@ class Illustrator {
 		this.name = uname;
 		this.next = {
 			illust: null,
-			bookmark: null
+			bookmark: null,
 		};
 	}
 
@@ -52,7 +45,7 @@ class Illustrator {
 		if (this.name.length > 0) {
 			userData = {
 				id: this.id,
-				name: this.name
+				name: this.name,
 			};
 		} else {
 			userData = await pixiv.userDetail(this.id).then(ret => ret.user);
@@ -71,11 +64,10 @@ class Illustrator {
 	 */
 	async getSomeIllusts(type, option = null) {
 		let result = [];
-		let json;
+		let json = {};
 
 		//请求
-		if (this.next[type])
-			json = await pixiv.requestUrl(this.next[type]);
+		if (this.next[type]) json = await pixiv.requestUrl(this.next[type]);
 		else {
 			if (type == 'illust') json = await pixiv.userIllusts(this.id);
 			else if (type == 'bookmark') {
@@ -113,7 +105,7 @@ class Illustrator {
 	 */
 	bookmarks(isPrivate = false) {
 		return this.getSomeIllusts('bookmark', {
-			restrict: isPrivate ? 'private' : 'public'
+			restrict: isPrivate ? 'private' : 'public',
 		});
 	}
 

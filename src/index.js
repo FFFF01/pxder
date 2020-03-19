@@ -1,21 +1,11 @@
-/*
- * @Author: Jindai Kirin
- * @Date: 2018-08-14 14:34:13
- * @Last Modified by: Jindai Kirin
- * @Last Modified time: 2019-06-30 23:51:42
- */
-
 require('colors');
 const PixivApi = require('./pixiv-api-client-mod');
 const Downloader = require('./downloader');
 const Illustrator = require('./illustrator');
-const Fs = require('fs');
 const Fse = require('fs-extra');
 const Path = require('path');
 const Tools = require('./tools');
-
-const SocksProxyAgent = require('socks-proxy-agent');
-const HttpsProxyAgent = require('https-proxy-agent');
+const { getProxyAgent, getSysProxy } = require('./proxy');
 
 const configFileDir = require('appdata-path').getAppDataPath('pxder');
 const configFile = Path.join(configFileDir, 'config.json');
@@ -35,14 +25,15 @@ class PixivFunc {
 	 * @memberof PixivFunc
 	 */
 	static initConfig(forceInit = false) {
-		if (!Fs.existsSync(configFileDir)) Fs.mkdirSync(configFileDir);
-		if (!Fs.existsSync(configFile) || forceInit) Fse.writeJSONSync(configFile, {
-			download: {
-				thread: 5,
-				timeout: 30,
-				autoRename: false
-			}
-		});
+		Fse.ensureDirSync(configFileDir);
+		if (!Fse.existsSync(configFile) || forceInit)
+			Fse.writeJSONSync(configFile, {
+				download: {
+					thread: 5,
+					timeout: 30,
+					autoRename: false,
+				},
+			});
 	}
 
 	/**
@@ -59,7 +50,6 @@ class PixivFunc {
 		if (!config.download.thread) config.download.thread = 5;
 		if (!config.download.autoRename) config.download.autoRename = false;
 		if (!config.download.timeout) config.download.timeout = 30;
-		PixivFunc.applyConfig(config);
 		return config;
 	}
 
@@ -71,7 +61,7 @@ class PixivFunc {
 	 * @memberof PixivFunc
 	 */
 	static writeConfig(config) {
-		Fs.writeFileSync(configFile, JSON.stringify(config));
+		Fse.writeJsonSync(configFile, config);
 	}
 
 	/**
@@ -102,15 +92,30 @@ class PixivFunc {
 	 * @param {*} config 配置
 	 * @memberof PixivFunc
 	 */
-	static applyConfig(config) {
+	static applyConfig(config = PixivFunc.readConfig()) {
 		__config = config;
-		config.download.tmp = Path.join(configFileDir, "tmp");
+		config.download.tmp = Path.join(configFileDir, 'tmp');
 		Downloader.setConfig(config.download);
+		PixivFunc.applyProxyConfig(config);
+	}
+
+	/**
+	 * 应用代理配置
+	 *
+	 * @static
+	 * @param {*} config 配置
+	 * @memberof PixivFunc
+	 */
+	static applyProxyConfig(config = PixivFunc.readConfig()) {
 		const proxy = config.proxy;
-		let agent = false;
-		if (typeof(proxy) == "string") {
-			if (proxy.search('http://') === 0) agent = new HttpsProxyAgent(proxy);
-			else if (proxy.search('socks://') === 0) agent = new SocksProxyAgent(proxy, true);
+		const sysProxy = getSysProxy();
+		// if config has no proxy and env has, use it
+		const agent = proxy === 'disable' ? null : getProxyAgent(proxy) || getProxyAgent(sysProxy);
+		// fix OAuth may fail if env has set the http proxy
+		if (sysProxy) {
+			delete process.env.all_proxy;
+			delete process.env.http_proxy;
+			delete process.env.https_proxy;
 		}
 		if (agent) {
 			Downloader.setAgent(agent);
@@ -199,7 +204,8 @@ class PixivFunc {
 		async function addToFollows(data) {
 			next = data.next_url;
 			for (const preview of data.user_previews) {
-				if (preview.user.id != 11) { //除去“pixiv事務局”
+				if (preview.user.id != 11) {
+					//除去“pixiv事務局”
 					const tmp = new Illustrator(preview.user.id, preview.user.name);
 					await tmp.setExampleIllusts(preview.illusts);
 					follows.push(tmp);
@@ -210,9 +216,12 @@ class PixivFunc {
 		//开始收集
 		if (next) {
 			await this.pixiv.requestUrl(next).then(addToFollows);
-		} else await this.pixiv.userFollowing(this.pixiv.authInfo().user.id, {
-			restrict: isPrivate ? 'private' : 'public'
-		}).then(addToFollows);
+		} else
+			await this.pixiv
+				.userFollowing(this.pixiv.authInfo().user.id, {
+					restrict: isPrivate ? 'private' : 'public',
+				})
+				.then(addToFollows);
 
 		this.followNextUrl = next;
 		return follows;
@@ -256,7 +265,7 @@ class PixivFunc {
 	 * @memberof PixivFunc
 	 */
 	async downloadByUIDs(uids) {
-		const uidArray = (Array.isArray(uids) ? uids : [uids]);
+		const uidArray = Array.isArray(uids) ? uids : [uids];
 		for (const uid of uidArray) {
 			await Downloader.downloadByIllustrators([new Illustrator(uid)]).catch(e => {
 				console.error(e);
@@ -283,28 +292,30 @@ class PixivFunc {
 	 * @memberof PixivFunc
 	 */
 	async downloadFollowAll(isPrivate, force) {
-		let follows = [];
+		let follows = null;
 		let illustrators = null;
 
 		//临时文件
 		const tmpJson = Path.join(configFileDir, (isPrivate ? 'private' : 'public') + '.json');
-		if (!Fs.existsSync(__config.download.path)) Fs.mkdirSync(__config.download.path);
+		const tmpJsonExist = Fse.existsSync(tmpJson);
+		Fse.ensureDirSync(__config.download.path);
 
 		//取得关注列表
-		if (!Fs.existsSync(tmpJson) || force) {
+		if (!tmpJsonExist || force || (tmpJsonExist && !(follows = Tools.readJsonSafely(tmpJson, null)))) {
 			console.log('\nCollecting your follows');
-
+			follows = [];
 			await this.getAllMyFollow(isPrivate).then(ret => {
 				illustrators = ret;
-				ret.forEach(illustrator => follows.push({
-					id: illustrator.id,
-					name: illustrator.name,
-					illusts: illustrator.exampleIllusts
-				}));
+				ret.forEach(illustrator =>
+					follows.push({
+						id: illustrator.id,
+						name: illustrator.name,
+						illusts: illustrator.exampleIllusts,
+					})
+				);
 			});
-
-			Fs.writeFileSync(tmpJson, JSON.stringify(follows));
-		} else follows = require(tmpJson);
+			Fse.writeJSONSync(tmpJson, follows);
+		}
 
 		//数据恢复
 		if (!illustrators) {
@@ -319,11 +330,11 @@ class PixivFunc {
 		//开始下载
 		await Downloader.downloadByIllustrators(illustrators, () => {
 			follows.shift();
-			Fs.writeFileSync(tmpJson, JSON.stringify(follows));
+			Fse.writeJSONSync(tmpJson, follows);
 		});
 
 		//清除临时文件
-		Fs.unlinkSync(tmpJson);
+		Fse.unlinkSync(tmpJson);
 	}
 
 	/**
@@ -334,12 +345,12 @@ class PixivFunc {
 	async downloadUpdate() {
 		const uids = [];
 		//得到文件夹内所有UID
-		await Tools.readDirSync(__config.download.path).then(files => {
-			for (const file of files) {
-				const search = /^\(([0-9]+)\)/.exec(file);
-				if (search) uids.push(search[1]);
-			}
-		});
+		Fse.ensureDirSync(__config.download.path);
+		const files = Fse.readdirSync(__config.download.path);
+		for (const file of files) {
+			const search = /^\(([0-9]+)\)/.exec(file);
+			if (search) uids.push(search[1]);
+		}
 		//下载
 		const illustrators = [];
 		uids.forEach(uid => illustrators.push(new Illustrator(uid)));
@@ -364,12 +375,25 @@ class PixivFunc {
 	 */
 	async downloadByPIDs(pids) {
 		const jsons = [];
+		const dirPath = Path.join(__config.download.path, 'PID');
+		Fse.ensureDirSync(dirPath);
+		const exists = Fse.readdirSync(dirPath)
+			.map(file => {
+				const search = /^\(([0-9]+)\)/.exec(file);
+				if (search && search[1]) return search[1];
+				return null;
+			})
+			.filter(pid => pid);
 		for (const pid of pids) {
-			jsons.push(await this.pixiv.illustDetail(pid).then(json => json.illust));
+			if (exists.includes(pid)) continue;
+			try {
+				jsons.push(await this.pixiv.illustDetail(pid).then(json => json.illust));
+			} catch (error) {
+				console.log(`${pid} does not exist`.gray);
+			}
 		}
 		await Downloader.downloadByIllusts(jsons);
 	}
 }
-
 
 module.exports = PixivFunc;

@@ -10,27 +10,27 @@
 
 ### Windows
 
-打开[官网](https://nodejs.org) => 下载右边的“最新发布版” => 安装一路确定
+打开[官网](https://nodejs.org) => 下载左边的 LTS 版本 => 安装一路确定
 
 ### Linux
 
 ```bash
 # Ubuntu
-curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -
+curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Debian
-curl -sL https://deb.nodesource.com/setup_10.x | bash -
+curl -sL https://deb.nodesource.com/setup_12.x | bash -
 apt-get install -y nodejs
 
 # Centos
-curl -sL https://rpm.nodesource.com/setup_10.x | bash -
+curl -sL https://rpm.nodesource.com/setup_12.x | bash -
 yum install nodejs -y
 ```
 
 ## 安装/更新/卸载
 
-打开“命令提示符”或者“Powershell”，执行下面的命令，即可安装或者更新（注：后续命令皆为在此执行）
+Windows 打开“命令提示符”或者“Powershell”，执行下面的命令，即可安装或者更新（注：后续命令皆为在此执行）
 
 ```bash
 npm i -g pxder
@@ -96,19 +96,20 @@ pxder --setting
   - `http://user:passwd@127.0.0.1:1080`
   - `socks://127.0.0.1:1080`（如果你使用小飞机则直接填这个，除非你改过本地端口）
   
-  如果输入空行则关闭代理
+  如果输入空行则会尝试从环境变量中依次读取`all_proxy`,`https_proxy`,`https_proxy`  
+  如果想完全禁止使用代理，请输入`disable`
 
 注：配置文件存放路径可通过命令`pxder --conf-loca`查看
 
 ## 说明
 
-- 由于官方客户端 API 限制 offset 不能大于 5000，所以程序不会也无法得到画师列表、画作列表、收藏列表等 5000 页以后的数据，并且由该原因导致的程序崩溃问题已经在 v2.7.3 修复
 - 会将同一画师的作品下载在`(UID)画师名`格式的文件夹内，图片命名格式为`(PID)作品名`  
   并且，画师名会自动删除名字中`@`（包含半角&全角）符号及以后的文字（因为这些基本上都是画师的摊位信息之类的与名字无关的信息）
 - 文件（夹）名均会过滤掉所有 Windows 和 Linux 中不能或不推荐做文件名的符号
 - 动图下下来会是所有帧的压缩包，并且会标注 delay 信息
   - 例如`xxx@30ms.zip`表示该动图的播放速度为 30ms 一帧
   - 由于获取动图信息需要额外调用API，因此如果动图较多将会使得解析时间较长
+  - 目前没有自动转 gif / mp4 / webm 的功能，但在计划中，什么时候写看心情
 - 下载时会忽略掉已经下载完成的插画
 - 下载超时或网络错误会自动重试，重试上限为10次
   - 若状态码为 404 则直接放弃下载，例如`48948784_p4`这种因P站自身原因导致的图片问题
@@ -120,7 +121,9 @@ pxder --setting
 
 如果需要终止程序，请在命令行中按下`Ctrl + C`或者直接关闭命令行窗口
 
-请不要吐槽为什么在 Windows 下`Ctrl + C`后提示的`终止批处理操作吗(Y/N)?`不管是 Y 还是 N 都依然会终止，因为 nodejs 捕捉到`Ctrl + C`就自己终止了，Windows 晚了一步（。
+请不要吐槽为什么在 Windows 下`Ctrl + C`后提示的`终止批处理操作吗(Y/N)?`不管是 Y 还是 N 都依然会终止，因为 Node 捕捉到`Ctrl + C`就自己终止了，Windows 晚了一步（。
+
+欲查看完整命令帮助请执行`pxder -h`
 
 ### (1) 下载或更新某画师的所有插画作品
 
